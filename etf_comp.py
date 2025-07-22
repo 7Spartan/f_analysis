@@ -13,16 +13,27 @@ etf_returns = {
 }
 years = list(range(2024, 2009, -1))
 
-st.title("📈 ETF Returns Analyzer")
+st.title("ETF Returns Analyzer")
+# layout to be two columns
+col1, col2 = st.columns(2)
 
-# ETF selector
-selected_etfs = st.multiselect("Select ETFs:", list(etf_returns.keys()), default=["QQQ", "VOO"])
+with col1:
+    # ETF selector
+    selected_etfs = st.multiselect("Select ETFs:", list(etf_returns.keys()), default=["QQQ", "VOO"])
 
-# Streak length
-streak_length = st.selectbox("Select streak duration (years):", [3, 5, 10], index=1)
+with col2:
+    # Streak length
+
+    streak_length = st.selectbox("Select streak duration (years):", [3, 5, 10], index=1)
+
+# # ETF selector
+# selected_etfs = st.multiselect("Select ETFs:", list(etf_returns.keys()), default=["QQQ", "VOO"])
+
+# # Streak length
+# streak_length = st.selectbox("Select streak duration (years):", [3, 5, 10], index=1)
 
 # --- Plot Annual Returns ---
-st.subheader("📅 Annual Returns")
+st.subheader("Annual Returns")
 fig, ax = plt.subplots(figsize=(10, 5))
 for etf in selected_etfs:
     ax.plot(years, etf_returns[etf], label=etf, marker='o')
@@ -35,15 +46,15 @@ ax.grid(True)
 st.pyplot(fig)
 
 # --- Volatility / Sideways Market ---
-st.subheader("📉 Volatility (Standard Deviation of Returns)")
+st.subheader("Volatility (Standard Deviation of Returns)")
 volatility = {etf: np.std(returns) for etf, returns in etf_returns.items()}
 sorted_vol = sorted(volatility.items(), key=lambda x: x[1])
 st.dataframe(pd.DataFrame(sorted_vol, columns=["ETF", "Volatility (%)"]))
 sideways = sorted_vol[0][0]
-st.success(f"Most 'sideways' ETF: **{sideways}** with volatility of {sorted_vol[0][1]:.2f}%")
+st.success(f"Best 'sideways' ETF: **{sideways}** with volatility of {sorted_vol[0][1]:.2f}%")
 
 # --- Best/Worst N-Year Streaks ---
-st.subheader(f"🚀 Best and 😩 Worst {streak_length}-Year Streaks (CAGR)")
+st.subheader(f"Best and Worst {streak_length}-Year Streaks (CAGR)")
 def get_streaks(returns, years, n):
     results = []
     for i in range(len(returns) - n + 1):
@@ -71,7 +82,7 @@ for etf in selected_etfs:
 st.dataframe(pd.DataFrame(streak_data))
 
 # Optional: Bar Chart
-st.subheader("📊 CAGR Comparison")
+st.subheader("CAGR Comparison")
 df_cagr = pd.DataFrame(streak_data)
 fig2, ax2 = plt.subplots()
 width = 0.35
