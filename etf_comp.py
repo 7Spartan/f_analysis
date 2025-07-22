@@ -22,9 +22,8 @@ with col1:
     selected_etfs = st.multiselect("Select ETFs:", list(etf_returns.keys()), default=["QQQ", "VOO"])
 
 with col2:
-    # Streak length
-
-    streak_length = st.selectbox("Select streak duration (years):", [3, 5, 10], index=1)
+    # Streak length slider
+    streak_length = st.slider("Select streak duration (years):", min_value=1, max_value=10, value=3)
 
 # # ETF selector
 # selected_etfs = st.multiselect("Select ETFs:", list(etf_returns.keys()), default=["QQQ", "VOO"])
