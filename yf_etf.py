@@ -34,9 +34,10 @@ def load_data(tickers):
 st.sidebar.header("⚙️ Controls")
 selected_tickers = st.sidebar.multiselect("Select ETFs to Compare", default_tickers, default=default_tickers[:2])
 
-custom_ticker = st.sidebar.text_input("Add Custom Ticker (e.g. MSFT, AAPL)", "")
-if custom_ticker:
-    selected_tickers.append(custom_ticker.upper())
+custom_ticker_input = st.sidebar.text_input("Add Custom Tickers (comma-separated, e.g. MSFT, NVDA, AAPL)", "")
+if custom_ticker_input:
+    custom_tickers = [ticker.strip().upper() for ticker in custom_ticker_input.split(",") if ticker.strip()]
+    selected_tickers = list(set(selected_tickers + custom_tickers))  # avoid duplicates
 
 st.sidebar.markdown("---")
 window = st.sidebar.slider("Streak Length (Years)", min_value=0.25, max_value=10.0, step=0.25, value=10.0)
