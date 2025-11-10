@@ -6,6 +6,38 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
 
+# Currency conversion rates (approximate, you may want to fetch live rates)
+CURRENCY_RATES = {
+    'INR_TO_USD': 0.012,  # 1 INR ≈ 0.012 USD
+    'INR_TO_CAD': 0.017,  # 1 INR ≈ 0.017 CAD
+}
+
+def get_currency_from_ticker(ticker):
+    """Determine currency based on ticker suffix"""
+    if ticker.endswith('.NS') or ticker.endswith('.BO'):
+        return 'INR'
+    elif ticker.endswith('.TO'):
+        return 'CAD'
+    else:
+        return 'USD'
+
+def convert_to_base_currency(amount, from_currency, to_currency='CAD'):
+    """Convert amount from one currency to base currency"""
+    if from_currency == to_currency:
+        return amount
+    
+    if from_currency == 'INR':
+        if to_currency == 'USD':
+            return amount * CURRENCY_RATES['INR_TO_USD']
+        elif to_currency == 'CAD':
+            return amount * CURRENCY_RATES['INR_TO_CAD']
+    elif from_currency == 'USD' and to_currency == 'CAD':
+        return amount * 1.35  # Approximate USD to CAD
+    elif from_currency == 'CAD' and to_currency == 'USD':
+        return amount / 1.35
+    
+    return amount  # Fallback if conversion not defined
+
 st.set_page_config(page_title="TFSA Dividend Strategy Analyzer", layout="wide")
 st.title("💰 TFSA Dividend Strategy Analyzer")
 
@@ -18,6 +50,9 @@ st.markdown("""
 - Added Indian stocks (NSE: .NS suffix)
 - Smart filtering based on yield and payout ratio
 - Quality scoring system to find best opportunities
+- **Currency Conversion**: All prices/dividends automatically converted to your selected currency (CAD/USD)
+  - Indian Rupees (INR) → CAD/USD
+  - Exchange rates: 1 INR ≈ 0.012 USD ≈ 0.017 CAD
 """)
 
 # --- Popular Dividend Stocks/ETFs ---
@@ -69,9 +104,16 @@ DIVIDEND_TICKERS = {
 # --- Sidebar Controls ---
 st.sidebar.header("⚙️ Portfolio Configuration")
 
+# Currency Selection
+base_currency = st.sidebar.selectbox(
+    "Display Currency",
+    ["CAD", "USD"],
+    help="All prices and dividends will be converted to this currency"
+)
+
 # TFSA Starting Amount
 initial_investment = st.sidebar.number_input(
-    "Initial TFSA Investment ($CAD)", 
+    f"Initial TFSA Investment (${base_currency})", 
     min_value=1000, 
     max_value=500000, 
     value=60000, 
@@ -80,7 +122,7 @@ initial_investment = st.sidebar.number_input(
 
 # Annual Contribution
 annual_contribution = st.sidebar.number_input(
-    "Annual TFSA Contribution ($CAD)", 
+    f"Annual TFSA Contribution (${base_currency})", 
     min_value=0, 
     max_value=10000, 
     value=7000, 
@@ -155,8 +197,8 @@ st.sidebar.info(f"**{len(selected_tickers)} investments selected**")
 
 # --- Data Loading ---
 @st.cache_data(ttl=3600, show_spinner="📥 Fetching dividend & price data...")
-def load_dividend_data(tickers, years_back=5, start_year=None):
-    """Load historical dividend and price data"""
+def load_dividend_data(tickers, years_back=5, start_year=None, base_currency='CAD'):
+    """Load historical dividend and price data with currency conversion"""
     data = {}
     if start_year:
         # For backtesting, load from specific start year to now
@@ -168,22 +210,39 @@ def load_dividend_data(tickers, years_back=5, start_year=None):
         try:
             stock = yf.Ticker(ticker)
             
+            # Determine source currency
+            source_currency = get_currency_from_ticker(ticker)
+            
             # Get dividend history
             dividends = stock.dividends
             if dividends.empty:
                 st.warning(f"⚠️ No dividend data found for {ticker}")
                 continue
             
+            # Convert dividends to base currency
+            dividends = dividends * convert_to_base_currency(1, source_currency, base_currency)
+            
             # Get price history
             hist = stock.history(start=start_date, auto_adjust=True)
+            
+            # Convert prices to base currency
+            if not hist.empty:
+                for col in ['Open', 'High', 'Low', 'Close']:
+                    if col in hist.columns:
+                        hist[col] = hist[col] * convert_to_base_currency(1, source_currency, base_currency)
             
             # Get current info
             info = stock.info
             current_price = info.get('currentPrice', hist['Close'].iloc[-1] if not hist.empty else None)
+            
+            # Convert current price to base currency
+            if current_price:
+                current_price = current_price * convert_to_base_currency(1, source_currency, base_currency)
+            
             dividend_yield = info.get('dividendYield', None)
             payout_ratio = info.get('payoutRatio', None)
             
-            # Calculate trailing 12-month dividend
+            # Calculate trailing 12-month dividend (already converted)
             # Ensure timezone-aware comparison
             if dividends.index.tz is not None:
                 # Dividend index is timezone-aware
@@ -203,7 +262,9 @@ def load_dividend_data(tickers, years_back=5, start_year=None):
                 'dividend_yield': dividend_yield,
                 'ttm_dividend': ttm_dividend,
                 'payout_ratio': payout_ratio,
-                'name': info.get('longName', ticker)
+                'name': info.get('longName', ticker),
+                'source_currency': source_currency,
+                'converted_to': base_currency
             }
             
         except Exception as e:
@@ -214,7 +275,11 @@ def load_dividend_data(tickers, years_back=5, start_year=None):
 
 # Load data
 with st.spinner("Loading dividend data..."):
-    dividend_data = load_dividend_data(selected_tickers, start_year=start_year if use_historical else None)
+    dividend_data = load_dividend_data(
+        selected_tickers, 
+        start_year=start_year if use_historical else None,
+        base_currency=base_currency
+    )
 
 if not dividend_data:
     st.error("❌ No valid dividend data loaded. Please check your ticker symbols.")
@@ -246,9 +311,14 @@ for ticker, data in dividend_data.items():
         else:
             quality_marker = "⚠️"  # Missing data
     
+    # Show original currency if converted
+    currency_note = ""
+    if data['source_currency'] != base_currency:
+        currency_note = f" ({data['source_currency']}→{base_currency})"
+    
     metrics_df.append({
         'Quality': quality_marker,
-        'Ticker': ticker,
+        'Ticker': ticker + currency_note,
         'Name': data['name'][:40],
         'Current Price': f"${data['current_price']:.2f}" if data['current_price'] else "N/A",
         'TTM Dividend': f"${data['ttm_dividend']:.2f}",
@@ -258,6 +328,10 @@ for ticker, data in dividend_data.items():
 
 # Display metrics
 df_display = pd.DataFrame(metrics_df)
+
+# Show currency info
+st.info(f"💱 **Display Currency: {base_currency}** - All prices and dividends converted to {base_currency}")
+
 if use_smart_filter:
     st.info(f"🎯 **{len(quality_stocks)}** stocks meet quality criteria (min yield: {min_yield}%, max payout: {max_payout}%)")
     
@@ -277,7 +351,11 @@ with st.expander("🔍 Scan All Available Stocks (Beta)"):
             for category, tickers in DIVIDEND_TICKERS.items():
                 all_tickers.extend(tickers.keys())
             
-            scan_data = load_dividend_data(all_tickers, start_year=start_year if use_historical else None)
+            scan_data = load_dividend_data(
+                all_tickers, 
+                start_year=start_year if use_historical else None,
+                base_currency=base_currency
+            )
             
             if scan_data:
                 scan_results = []
@@ -610,7 +688,7 @@ fig_value = px.line(
     x='Year', 
     y='Portfolio_Value',
     title=chart_title,
-    labels={'Portfolio_Value': 'Portfolio Value ($)', 'Year': 'Years'}
+    labels={'Portfolio_Value': f'Portfolio Value ({base_currency})', 'Year': 'Years'}
 )
 fig_value.add_hline(
     y=total_invested, 
@@ -627,7 +705,7 @@ fig_income = px.line(
     x='Year', 
     y='Annual_Dividend_Income',
     title='Annual Dividend Income Over Time',
-    labels={'Annual_Dividend_Income': 'Annual Dividend Income ($)', 'Year': 'Years'}
+    labels={'Annual_Dividend_Income': f'Annual Dividend Income ({base_currency})', 'Year': 'Years'}
 )
 fig_income.update_traces(line_color='green', line_width=3)
 fig_income.update_layout(yaxis_tickformat='$,.0f', height=400)
