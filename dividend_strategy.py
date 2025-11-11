@@ -8,8 +8,12 @@ from datetime import datetime, timedelta
 
 # Currency conversion rates (approximate, you may want to fetch live rates)
 CURRENCY_RATES = {
-    'INR_TO_USD': 0.012,  # 1 INR ≈ 0.012 USD
-    'INR_TO_CAD': 0.017,  # 1 INR ≈ 0.017 CAD
+    'INR_TO_USD': 0.012,  # 1 INR ≈ 0.012 USD (≈ 83 INR per USD)
+    'INR_TO_CAD': 0.017,  # 1 INR ≈ 0.017 CAD (≈ 59 INR per CAD)
+    'USD_TO_INR': 83.0,   # 1 USD ≈ 83 INR
+    'CAD_TO_INR': 61.5,   # 1 CAD ≈ 61.5 INR
+    'USD_TO_CAD': 1.35,   # 1 USD ≈ 1.35 CAD
+    'CAD_TO_USD': 0.74,   # 1 CAD ≈ 0.74 USD
 }
 
 def get_currency_from_ticker(ticker):
@@ -26,15 +30,26 @@ def convert_to_base_currency(amount, from_currency, to_currency='CAD'):
     if from_currency == to_currency:
         return amount
     
+    # INR conversions
     if from_currency == 'INR':
         if to_currency == 'USD':
             return amount * CURRENCY_RATES['INR_TO_USD']
         elif to_currency == 'CAD':
             return amount * CURRENCY_RATES['INR_TO_CAD']
-    elif from_currency == 'USD' and to_currency == 'CAD':
-        return amount * 1.35  # Approximate USD to CAD
-    elif from_currency == 'CAD' and to_currency == 'USD':
-        return amount / 1.35
+    
+    # USD conversions
+    elif from_currency == 'USD':
+        if to_currency == 'CAD':
+            return amount * CURRENCY_RATES['USD_TO_CAD']
+        elif to_currency == 'INR':
+            return amount * CURRENCY_RATES['USD_TO_INR']
+    
+    # CAD conversions
+    elif from_currency == 'CAD':
+        if to_currency == 'USD':
+            return amount * CURRENCY_RATES['CAD_TO_USD']
+        elif to_currency == 'INR':
+            return amount * CURRENCY_RATES['CAD_TO_INR']
     
     return amount  # Fallback if conversion not defined
 
@@ -107,26 +122,33 @@ st.sidebar.header("⚙️ Portfolio Configuration")
 # Currency Selection
 base_currency = st.sidebar.selectbox(
     "Display Currency",
-    ["CAD", "USD"],
+    ["CAD", "USD", "INR"],
     help="All prices and dividends will be converted to this currency"
 )
 
 # TFSA Starting Amount
+currency_symbol = "₹" if base_currency == "INR" else "$"
+default_initial = 5000000 if base_currency == "INR" else 60000  # ~60K CAD in INR
+max_initial = 30000000 if base_currency == "INR" else 500000
+
 initial_investment = st.sidebar.number_input(
-    f"Initial TFSA Investment (${base_currency})", 
+    f"Initial TFSA Investment ({currency_symbol}{base_currency})", 
     min_value=1000, 
-    max_value=500000, 
-    value=60000, 
-    step=5000
+    max_value=max_initial, 
+    value=default_initial, 
+    step=5000 if base_currency != "INR" else 50000
 )
 
 # Annual Contribution
+default_contrib = 500000 if base_currency == "INR" else 7000  # ~7K CAD in INR
+max_contrib = 1000000 if base_currency == "INR" else 10000
+
 annual_contribution = st.sidebar.number_input(
-    f"Annual TFSA Contribution (${base_currency})", 
+    f"Annual TFSA Contribution ({currency_symbol}{base_currency})", 
     min_value=0, 
-    max_value=10000, 
-    value=7000, 
-    step=500
+    max_value=max_contrib, 
+    value=default_contrib, 
+    step=10000 if base_currency == "INR" else 500
 )
 
 # Investment Duration
@@ -320,8 +342,8 @@ for ticker, data in dividend_data.items():
         'Quality': quality_marker,
         'Ticker': ticker + currency_note,
         'Name': data['name'][:40],
-        'Current Price': f"${data['current_price']:.2f}" if data['current_price'] else "N/A",
-        'TTM Dividend': f"${data['ttm_dividend']:.2f}",
+        'Current Price': f"{currency_symbol}{data['current_price']:.2f}" if data['current_price'] else "N/A",
+        'TTM Dividend': f"{currency_symbol}{data['ttm_dividend']:.2f}",
         'Dividend Yield': f"{div_yield:.2f}%" if div_yield else "N/A",
         'Payout Ratio': f"{payout:.1f}%" if payout else "N/A"
     })
@@ -667,17 +689,17 @@ final_annual_income = results['Annual_Dividend_Income'].iloc[-1]
 cumulative_divs = results['Cumulative_Dividends'].iloc[-1]
 
 with col1:
-    st.metric("Final Portfolio Value", f"${final_value:,.0f}")
+    st.metric("Final Portfolio Value", f"{currency_symbol}{final_value:,.0f}")
 with col2:
-    st.metric("Total Invested", f"${total_invested:,.0f}")
+    st.metric("Total Invested", f"{currency_symbol}{total_invested:,.0f}")
 with col3:
-    st.metric("Total Gain", f"${total_gain:,.0f}", f"{(total_gain/total_invested)*100:.1f}%")
+    st.metric("Total Gain", f"{currency_symbol}{total_gain:,.0f}", f"{(total_gain/total_invested)*100:.1f}%")
 with col4:
-    st.metric("Final Annual Dividend Income", f"${final_annual_income:,.0f}")
+    st.metric("Final Annual Dividend Income", f"{currency_symbol}{final_annual_income:,.0f}")
 
 st.metric(
     "Total Dividends Received", 
-    f"${cumulative_divs:,.0f}",
+    f"{currency_symbol}{cumulative_divs:,.0f}",
     help="Total dividend payments received over the investment period"
 )
 
@@ -694,9 +716,10 @@ fig_value.add_hline(
     y=total_invested, 
     line_dash="dash", 
     line_color="gray",
-    annotation_text=f"Total Invested: ${total_invested:,.0f}"
+    annotation_text=f"Total Invested: {currency_symbol}{total_invested:,.0f}"
 )
-fig_value.update_layout(yaxis_tickformat='$,.0f', height=400)
+tickformat = '₹,.0f' if base_currency == 'INR' else '$,.0f'
+fig_value.update_layout(yaxis_tickformat=tickformat, height=400)
 st.plotly_chart(fig_value, use_container_width=True)
 
 # Dividend Income Chart
@@ -708,7 +731,7 @@ fig_income = px.line(
     labels={'Annual_Dividend_Income': f'Annual Dividend Income ({base_currency})', 'Year': 'Years'}
 )
 fig_income.update_traces(line_color='green', line_width=3)
-fig_income.update_layout(yaxis_tickformat='$,.0f', height=400)
+fig_income.update_layout(yaxis_tickformat=tickformat, height=400)
 st.plotly_chart(fig_income, use_container_width=True)
 
 # Cumulative Dividends Chart
@@ -724,8 +747,8 @@ fig_cum_div.add_trace(go.Scatter(
 fig_cum_div.update_layout(
     title='Cumulative Dividends Received',
     xaxis_title='Years',
-    yaxis_title='Cumulative Dividends ($)',
-    yaxis_tickformat='$,.0f',
+    yaxis_title=f'Cumulative Dividends ({base_currency})',
+    yaxis_tickformat=tickformat,
     height=400
 )
 st.plotly_chart(fig_cum_div, use_container_width=True)
@@ -777,15 +800,15 @@ else:
 
 with col1:
     final_with_drip = results_drip['Portfolio_Value'].iloc[-1]
-    st.metric("Final Value WITH DRIP", f"${final_with_drip:,.0f}")
+    st.metric("Final Value WITH DRIP", f"{currency_symbol}{final_with_drip:,.0f}")
     
 with col2:
     final_without_drip = results_no_drip['Portfolio_Value'].iloc[-1]
     drip_difference = final_with_drip - final_without_drip
     st.metric(
         "Final Value WITHOUT DRIP", 
-        f"${final_without_drip:,.0f}",
-        delta=f"-${drip_difference:,.0f}"
+        f"{currency_symbol}{final_without_drip:,.0f}",
+        delta=f"-{currency_symbol}{drip_difference:,.0f}"
     )
 
 # Comparison chart
@@ -807,8 +830,8 @@ fig_comparison.add_trace(go.Scatter(
 fig_comparison.update_layout(
     title='Portfolio Value: DRIP vs No DRIP',
     xaxis_title='Years',
-    yaxis_title='Portfolio Value ($)',
-    yaxis_tickformat='$,.0f',
+    yaxis_title=f'Portfolio Value ({base_currency})',
+    yaxis_tickformat=tickformat,
     height=500
 )
 st.plotly_chart(fig_comparison, use_container_width=True)
@@ -825,8 +848,8 @@ col1, col2 = st.columns(2)
 with col1:
     st.write("**📈 Growth Metrics:**")
     st.write(f"• Average portfolio yield: {avg_yield*100:.2f}%")
-    st.write(f"• Initial annual dividend income: ${initial_annual_income:,.0f}")
-    st.write(f"• Final annual dividend income: ${final_annual_income:,.0f}")
+    st.write(f"• Initial annual dividend income: {currency_symbol}{initial_annual_income:,.0f}")
+    st.write(f"• Final annual dividend income: {currency_symbol}{final_annual_income:,.0f}")
     st.write(f"• Dividend income growth: {((final_annual_income/initial_annual_income - 1)*100):.1f}%")
     
     yield_on_cost = (final_annual_income / initial_investment) * 100
@@ -839,7 +862,7 @@ with col2:
     
     st.write(f"• Total return: {total_return:.1f}%")
     st.write(f"• CAGR: {cagr:.2f}%")
-    st.write(f"• DRIP impact: ${drip_difference:,.0f} ({(drip_difference/final_without_drip)*100:.1f}%)")
+    st.write(f"• DRIP impact: {currency_symbol}{drip_difference:,.0f} ({(drip_difference/final_without_drip)*100:.1f}%)")
 
 st.info("""
 **📚 Understanding Dividends:**
@@ -871,6 +894,6 @@ with st.expander("📋 View Detailed Year-by-Year Data"):
     yearly_data_display = yearly_data[display_cols].copy()
     
     for col in ['Portfolio_Value', 'Annual_Dividend_Income', 'Cumulative_Dividends']:
-        yearly_data_display[col] = yearly_data_display[col].apply(lambda x: f"${x:,.0f}")
+        yearly_data_display[col] = yearly_data_display[col].apply(lambda x: f"{currency_symbol}{x:,.0f}")
     
     st.dataframe(yearly_data_display, use_container_width=True)
